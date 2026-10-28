@@ -335,6 +335,54 @@ func TestRoutes(t *testing.T) {
 			So(userAc.GetGroups(), ShouldBeEmpty)
 		})
 
+		Convey("Test OpenIDCodeExchangeCallback applies statically configured group users", func() {
+			conf.HTTP.AccessControl = &config.AccessControlConfig{
+				Groups: config.Groups{
+					"reader-group": {Users: []string{"static@test.com"}},
+				},
+			}
+
+			ctlr.MetaDB = mocks.MetaDBMock{
+				SetUserGroupsFn: func(ctx context.Context, groups []string) error {
+					return nil
+				},
+			}
+
+			callback := rthdlr.OpenIDCodeExchangeCallbackWithProvider("oidc")
+			ctx := context.TODO()
+
+			request, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL, nil)
+			response := httptest.NewRecorder()
+
+			state := uuid.New().String()
+			session, _ := ctlr.CookieStore.Get(request, "statecookie")
+			session.Values["state"] = state
+			So(session.Save(request, response), ShouldBeNil)
+
+			tokens := &oidc.Tokens[*oidc.IDTokenClaims]{
+				IDTokenClaims: &oidc.IDTokenClaims{Claims: map[string]any{}},
+			}
+			relyingParty, err := rp.NewRelyingPartyOAuth(&oauth2.Config{})
+			So(err, ShouldBeNil)
+
+			userinfo := &oidc.UserInfo{
+				Subject: "sub",
+				Claims:  map[string]any{},
+				Email:   "static@test.com",
+			}
+
+			callback(response, request, tokens, state, relyingParty, userinfo)
+
+			resp := response.Result()
+			defer resp.Body.Close()
+			So(resp.StatusCode, ShouldEqual, http.StatusCreated)
+
+			userAc, err := reqCtx.UserAcFromContext(request.Context())
+			So(err, ShouldBeNil)
+			So(userAc.GetUsername(), ShouldEqual, "static@test.com")
+			So(userAc.GetGroups(), ShouldResemble, []string{"reader-group"})
+		})
+
 		Convey("Test OAuth2Callback errors", func() {
 			ctx := context.TODO()
 

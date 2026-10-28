@@ -1343,6 +1343,14 @@ func OAuth2Callback(ctlr *Controller, w http.ResponseWriter, r *http.Request, st
 		return "", zerr.ErrInvalidStateCookie
 	}
 
+	// also apply the groups statically defined in accessControl.groups.<name>.users
+	if accessControl := ctlr.Config.CopyAccessControlConfig(); accessControl != nil {
+		ac := NewAccessController(ctlr.Config)
+		groups = append(slices.Clone(groups), ac.getUserGroups(identity)...)
+		slices.Sort(groups)
+		groups = slices.Compact(groups)
+	}
+
 	userAc := reqCtx.NewUserAccessControl()
 	userAc.SetUsername(identity)
 	userAc.AddGroups(groups)
